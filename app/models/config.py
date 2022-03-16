@@ -1,15 +1,11 @@
+from app.utils.misc import read_config_bool
 from flask import current_app
 import os
+import re
 
 
 class Config:
     def __init__(self, **kwargs):
-        def read_config_bool(var: str) -> bool:
-            val = os.getenv(var, '0')
-            if val.isdigit():
-                return bool(int(val))
-            return False
-
         app_config = current_app.config
         self.url = os.getenv('WHOOGLE_CONFIG_URL', '')
         self.lang_search = os.getenv('WHOOGLE_CONFIG_SEARCH_LANGUAGE', '')
@@ -19,8 +15,10 @@ class Config:
             open(os.path.join(app_config['STATIC_FOLDER'],
                               'css/variables.css')).read())
         self.block = os.getenv('WHOOGLE_CONFIG_BLOCK', '')
-        self.ctry = os.getenv('WHOOGLE_CONFIG_COUNTRY', '')
-        self.theme = os.getenv('WHOOGLE_CONFIG_THEME', '')
+        self.block_title = os.getenv('WHOOGLE_CONFIG_BLOCK_TITLE', '')
+        self.block_url = os.getenv('WHOOGLE_CONFIG_BLOCK_URL', '')
+        self.country = os.getenv('WHOOGLE_CONFIG_COUNTRY', '')
+        self.theme = os.getenv('WHOOGLE_CONFIG_THEME', 'system')
         self.safe = read_config_bool('WHOOGLE_CONFIG_SAFE')
         self.dark = read_config_bool('WHOOGLE_CONFIG_DARK')  # deprecated
         self.alts = read_config_bool('WHOOGLE_CONFIG_ALTS')
@@ -30,13 +28,18 @@ class Config:
         self.new_tab = read_config_bool('WHOOGLE_CONFIG_NEW_TAB')
         self.view_image = read_config_bool('WHOOGLE_CONFIG_VIEW_IMAGE')
         self.get_only = read_config_bool('WHOOGLE_CONFIG_GET_ONLY')
+        self.accept_language = False
 
         self.safe_keys = [
             'lang_search',
             'lang_interface',
-            'ctry',
-            'dark',
-            'theme'
+            'country',
+            'theme',
+            'alts',
+            'new_tab',
+            'view_image',
+            'block',
+            'safe'
         ]
 
         # Skip setting custom config if there isn't one
@@ -106,5 +109,26 @@ class Config:
         for param_key in params.keys():
             if not self.is_safe_key(param_key):
                 continue
-            self[param_key] = params.get(param_key)
+            param_val = params.get(param_key)
+
+            if param_val == 'off':
+                param_val = False
+            elif param_val.isdigit():
+                param_val = int(param_val)
+
+            self[param_key] = param_val
         return self
+
+    def to_params(self) -> str:
+        """Generates a set of safe params for using in Whoogle URLs
+
+        Returns:
+            str -- a set of URL parameters
+        """
+        param_str = ''
+        for safe_key in self.safe_keys:
+            if not self[safe_key]:
+                continue
+            param_str = param_str + f'&{safe_key}={self[safe_key]}'
+
+        return param_str

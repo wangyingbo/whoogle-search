@@ -2,29 +2,36 @@ from app.filter import clean_query
 from app.request import send_tor_signal
 from app.utils.session import generate_user_key
 from app.utils.bangs import gen_bangs_json
-from app.utils.misc import gen_file_hash
+from app.utils.misc import gen_file_hash, read_config_bool
+from datetime import datetime, timedelta
 from flask import Flask
 from flask_session import Session
 import json
 import logging.config
 import os
 from stem import Signal
+import threading
 from dotenv import load_dotenv
 
 app = Flask(__name__, static_folder=os.path.dirname(
     os.path.abspath(__file__)) + '/static')
 
 # Load .env file if enabled
-if os.getenv("WHOOGLE_DOTENV", ''):
+if os.getenv('WHOOGLE_DOTENV', ''):
     dotenv_path = '../whoogle.env'
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              dotenv_path))
 
 app.default_key = generate_user_key()
-app.no_cookie_ips = []
 app.config['SECRET_KEY'] = os.urandom(32)
 app.config['SESSION_TYPE'] = 'filesystem'
-app.config['VERSION_NUMBER'] = '0.5.4'
+app.config['SESSION_COOKIE_SAMESITE'] = 'strict'
+
+if os.getenv('HTTPS_ONLY'):
+    app.config['SESSION_COOKIE_NAME'] = '__Secure-session'
+    app.config['SESSION_COOKIE_SECURE'] = True
+
+app.config['VERSION_NUMBER'] = '0.7.1'
 app.config['APP_ROOT'] = os.getenv(
     'APP_ROOT',
     os.path.dirname(os.path.abspath(__file__)))
@@ -38,18 +45,24 @@ app.config['LANGUAGES'] = json.load(open(
     os.path.join(app.config['STATIC_FOLDER'], 'settings/languages.json'),
     encoding='utf-8'))
 app.config['COUNTRIES'] = json.load(open(
-    os.path.join(app.config['STATIC_FOLDER'], 'settings/countries.json')))
+    os.path.join(app.config['STATIC_FOLDER'], 'settings/countries.json'),
+    encoding='utf-8'))
 app.config['TRANSLATIONS'] = json.load(open(
-    os.path.join(app.config['STATIC_FOLDER'], 'settings/translations.json')))
+    os.path.join(app.config['STATIC_FOLDER'], 'settings/translations.json'),
+    encoding='utf-8'))
 app.config['THEMES'] = json.load(open(
-    os.path.join(app.config['STATIC_FOLDER'], 'settings/themes.json')))
+    os.path.join(app.config['STATIC_FOLDER'], 'settings/themes.json'),
+    encoding='utf-8'))
+app.config['HEADER_TABS'] = json.load(open(
+    os.path.join(app.config['STATIC_FOLDER'], 'settings/header_tabs.json'),
+    encoding='utf-8'))
 app.config['CONFIG_PATH'] = os.getenv(
     'CONFIG_VOLUME',
     os.path.join(app.config['STATIC_FOLDER'], 'config'))
 app.config['DEFAULT_CONFIG'] = os.path.join(
     app.config['CONFIG_PATH'],
     'config.json')
-app.config['CONFIG_DISABLE'] = os.getenv('WHOOGLE_CONFIG_DISABLE', '')
+app.config['CONFIG_DISABLE'] = read_config_bool('WHOOGLE_CONFIG_DISABLE')
 app.config['SESSION_FILE_DIR'] = os.path.join(
     app.config['CONFIG_PATH'],
     'session')
@@ -59,6 +72,12 @@ app.config['BANG_PATH'] = os.getenv(
 app.config['BANG_FILE'] = os.path.join(
     app.config['BANG_PATH'],
     'bangs.json')
+
+# Config fields that are used to check for updates
+app.config['RELEASES_URL'] = 'https://github.com/' \
+                             'benbusby/whoogle-search/releases'
+app.config['LAST_UPDATE_CHECK'] = datetime.now() - timedelta(hours=24)
+app.config['HAS_UPDATE'] = ''
 
 # The alternative to Google Translate is treated a bit differently than other
 # social media site alternatives, in that it is used for any translation
@@ -87,7 +106,11 @@ if not os.path.exists(app.config['SESSION_FILE_DIR']):
 if not os.path.exists(app.config['BANG_PATH']):
     os.makedirs(app.config['BANG_PATH'])
 if not os.path.exists(app.config['BANG_FILE']):
-    gen_bangs_json(app.config['BANG_FILE'])
+    json.dump({}, open(app.config['BANG_FILE'], 'w'))
+    bangs_thread = threading.Thread(
+        target=gen_bangs_json,
+        args=(app.config['BANG_FILE'],))
+    bangs_thread.start()
 
 # Build new mapping of static files for cache busting
 if not os.path.exists(app.config['BUILD_FOLDER']):
